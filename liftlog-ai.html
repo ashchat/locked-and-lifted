@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>LiftLog AI</title>
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=DM+Mono:wght@300;400;500&family=Barlow+Condensed:wght@400;600;700;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+  import {
+    getFirestore, doc, getDoc, setDoc, collection, getDocs
+  } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDcoSL4cQ6ZfVlsXRhAJXV5fslvAHsBh4A",
+    authDomain: "locked-and-lifted.firebaseapp.com",
+    projectId: "locked-and-lifted",
+    storageBucket: "locked-and-lifted.firebasestorage.app",
+    messagingSenderId: "97490129329",
+    appId: "1:97490129329:web:f5f824178a8a7c9b616d90"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  // Expose a small bridge on window so the main (non-module) script below
+  // can call Firestore without needing everything to be a module.
+  window.__firebase = { db, doc, getDoc, setDoc, collection, getDocs };
+</script>
+<style>
+:root {
+  --bg:#080808; --surface:#111; --card:#161616; --border:#222;
+  --accent:#1de9b6; --green:#3ab26e; --red:#e05252; --blue:#5ca8e8;
+  --purple:#c87ce8; --text:#f0ede6; --muted:#666; --dim:#2a2a2a;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Barlow Condensed',sans-serif;}
+
+/* ── SHELL ── */
+.shell{display:flex;flex-direction:column;height:100vh;height:100dvh;}
+
+/* ── HEADER ── */
+.hdr{
+  flex-shrink:0;height:48px;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 14px;background:var(--surface);border-bottom:1px solid var(--border);
+}
+.logo{font-family:'Black Han Sans',sans-serif;font-size:1.25rem;color:var(--accent);}
+.logo small{display:block;font-size:.55rem;font-family:'DM Mono',monospace;color:var(--muted);letter-spacing:2px;margin-top:-3px;}
+.today{font-family:'DM Mono',monospace;font-size:.65rem;color:var(--accent);}
+
+/* ── TAB BAR (top) ── */
+.tabs{
+  flex-shrink:0;
+  display:flex;background:var(--surface);border-bottom:1px solid var(--border);
+}
+.tab{
+  flex:1;padding:9px 4px;background:none;border:none;border-bottom:2px solid transparent;
+  color:var(--muted);font-family:'Barlow Condensed',sans-serif;
+  font-size:.8rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;
+  cursor:pointer;transition:all .15s;margin-bottom:-1px;
+}
+.tab.on{color:var(--accent);border-bottom-color:var(--accent);}
+
+/* ── SCREENS ── */
+.screens{flex:1;overflow:hidden;min-height:0;position:relative;}
+.screen{display:none;position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+.screen.on{display:block;}
+
+/* ── OVERVIEW SCREEN ── */
+.overview{padding:12px;display:flex;flex-direction:column;gap:12px;}
+
+/* ── WORKOUT SCREEN: week strip fixed, scroll below ── */
+.workout-screen{display:none;position:absolute;inset:0;flex-direction:column;}
+.workout-screen.on{display:flex;}
+
+.week-strip{
+  flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--border);
+  padding:8px 10px;
+}
+.wsn{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+.wsn button{background:none;border:1px solid var(--border);border-radius:4px;color:var(--accent);cursor:pointer;padding:2px 10px;font-size:.9rem;transition:border-color .15s;}
+.wsn button:hover{border-color:var(--accent);}
+.wsn span{font-family:'DM Mono',monospace;font-size:.7rem;color:var(--text);font-weight:700;}
+.wdays{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;}
+.wday{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;padding:3px 1px;border-radius:6px;transition:background .15s;}
+.wday:hover{background:rgba(255,255,255,.04);}
+.wday-lbl{font-family:'DM Mono',monospace;font-size:.48rem;color:var(--muted);letter-spacing:.5px;}
+.wday-num{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;color:var(--muted);border:1px solid transparent;transition:all .15s;}
+.wday.sel .wday-num{background:var(--accent);color:#001a14;border-color:var(--accent);}
+.wday.completed .wday-num{background:rgba(58,178,110,.15);color:var(--green);border-color:rgba(58,178,110,.3);}
+.wday.partial .wday-num{background:rgba(29,233,182,.1);color:var(--accent);border-color:rgba(29,233,182,.25);}
+.wday.today .wday-num{border-color:var(--blue);color:var(--blue);}
+.wday.sel.today .wday-num{background:var(--accent);color:#001a14;border-color:var(--accent);}
+.wday-dot{width:4px;height:4px;border-radius:50%;}
+
+/* THE EXERCISES PANEL — must be flex:1 overflow-y:auto */
+.exs{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px;display:flex;flex-direction:column;gap:10px;min-height:0;}
+/* CRITICAL: every direct child must not shrink, or flexbox compresses them instead of scrolling */
+.exs > *{flex-shrink:0;}
+
+/* ── CHAT SCREEN ── */
+.chat-screen{display:none;position:absolute;inset:0;flex-direction:column;}
+.chat-screen.on{display:flex;}
+.chat-hdr{flex-shrink:0;padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;}
+.chat-hdr-title{font-size:.9rem;font-weight:700;}
+.chat-hdr-sub{font-family:'DM Mono',monospace;font-size:.58rem;color:var(--muted);}
+.aidot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite;flex-shrink:0;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.msgs{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;padding:10px;display:flex;flex-direction:column;gap:8px;}
+.msg{max-width:88%;}
+.msg.u{align-self:flex-end;}
+.msg.a{align-self:flex-start;}
+.bubble{padding:9px 12px;border-radius:10px;font-size:.88rem;line-height:1.5;}
+.msg.u .bubble{background:var(--accent);color:#001a14;border-bottom-right-radius:3px;}
+.msg.a .bubble{background:var(--card);color:var(--text);border:1px solid var(--border);border-bottom-left-radius:3px;}
+.msg-t{font-family:'DM Mono',monospace;font-size:.52rem;color:var(--muted);margin-top:2px;padding:0 3px;}
+.msg.u .msg-t{text-align:right;}
+.typing span{width:6px;height:6px;border-radius:50%;background:var(--muted);display:inline-block;animation:bounce 1.2s infinite;}
+.typing span:nth-child(2){animation-delay:.2s}
+.typing span:nth-child(3){animation-delay:.4s}
+@keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-7px)}}
+.cin-wrap{flex-shrink:0;padding:8px 10px;border-top:1px solid var(--border);display:flex;gap:7px;align-items:flex-end;}
+.cin{flex:1;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'Barlow Condensed',sans-serif;font-size:.95rem;padding:8px 10px;resize:none;min-height:38px;max-height:100px;outline:none;transition:border-color .15s;}
+.cin:focus{border-color:var(--accent);}
+.cin::placeholder{color:var(--muted);}
+.sbtn{background:var(--accent);border:none;border-radius:6px;color:#001a14;cursor:pointer;font-size:1.1rem;width:36px;height:36px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s;}
+.sbtn:hover{opacity:.85;}
+.sbtn:disabled{opacity:.4;cursor:default;}
+
+/* ── SHARED COMPONENTS ── */
+.sec-head{font-family:'DM Mono',monospace;font-size:.58rem;color:var(--muted);letter-spacing:3px;text-transform:uppercase;display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.sec-head::after{content:'';flex:1;height:1px;background:var(--border);}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;position:relative;overflow:hidden;}
+.stat::after{content:'';position:absolute;bottom:0;left:0;height:2px;width:var(--prog,0%);background:var(--accent);}
+.stat-lbl{font-family:'DM Mono',monospace;font-size:.52rem;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;}
+.stat-val{font-family:'Black Han Sans',sans-serif;font-size:1.6rem;line-height:1;color:var(--text);}
+.stat-sub{font-size:.7rem;color:var(--muted);margin-top:2px;}
+.stat-sub span{color:var(--accent);font-weight:700;}
+.chart-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;}
+.chart-title{font-size:.85rem;font-weight:700;margin-bottom:1px;}
+.chart-sub{font-family:'DM Mono',monospace;font-size:.55rem;color:var(--muted);margin-bottom:10px;}
+.chart-wrap{position:relative;height:110px;}
+.charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.day-title{font-family:'Black Han Sans',sans-serif;font-size:1.8rem;color:var(--text);line-height:1;}
+.day-sub{font-size:.82rem;font-weight:700;color:var(--accent);letter-spacing:2px;text-transform:uppercase;margin-top:3px;}
+.z2{display:flex;align-items:center;gap:8px;padding:9px 11px;background:rgba(200,124,232,.06);border:1px solid rgba(200,124,232,.2);border-radius:6px;font-family:'DM Mono',monospace;font-size:.62rem;color:var(--muted);}
+.ex-card{background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;transition:border-color .2s;flex-shrink:0;}
+.ex-card.done{border-color:var(--green);}
+.ex-card.ml{border-left:3px solid var(--accent);}
+.ex-hdr{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;cursor:pointer;user-select:none;}
+.ex-hdr:active{background:rgba(255,255,255,.03);}
+.ex-l{display:flex;align-items:center;gap:9px;}
+.ex-dot{width:7px;height:7px;border-radius:50%;background:var(--border);flex-shrink:0;transition:background .2s;}
+.ex-card.done .ex-dot{background:var(--green);}
+.ex-nm{font-size:.95rem;font-weight:700;color:var(--text);}
+.ex-mt{font-family:'DM Mono',monospace;font-size:.55rem;color:var(--muted);margin-top:2px;}
+.ex-r{display:flex;align-items:center;gap:5px;flex-shrink:0;}
+.bdg{font-family:'DM Mono',monospace;font-size:.58rem;padding:2px 6px;border-radius:3px;}
+.bdg.rec{background:rgba(58,178,110,.1);color:var(--green);border:1px solid rgba(58,178,110,.25);}
+.bdg.rec.tappable{cursor:pointer;transition:transform .1s;}
+.bdg.rec.tappable:active{transform:scale(.94);}
+.rec-tooltip{
+  position:fixed;left:12px;right:12px;bottom:16px;z-index:1000;
+  background:var(--card);border:1px solid var(--accent);border-radius:10px;
+  padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.5);
+  transform:translateY(120%);transition:transform .25s cubic-bezier(.34,1.2,.64,1);
+}
+.rec-tooltip.show{transform:translateY(0);}
+.rec-tooltip-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+.rec-tooltip-title{font-family:'DM Mono',monospace;font-size:.6rem;color:var(--accent);letter-spacing:2px;text-transform:uppercase;display:flex;align-items:center;gap:5px;}
+.rec-tooltip-close{background:var(--border);border:none;color:var(--muted);width:22px;height:22px;border-radius:50%;cursor:pointer;font-size:.85rem;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.rec-tooltip-body{font-size:.88rem;line-height:1.5;color:var(--text);}
+.rec-tooltip-weight{font-family:'Black Han Sans',sans-serif;font-size:1.3rem;color:var(--accent);margin-bottom:4px;}
+
+/* ── TINY STATUS DOT (tap to see last error/warning) ── */
+.status-dot{
+  display:none;width:8px;height:8px;border-radius:50%;cursor:pointer;
+  flex-shrink:0;
+}
+.status-dot.error{background:var(--red);box-shadow:0 0 6px rgba(224,82,82,.6);}
+.status-dot.warn{background:#e8d44d;box-shadow:0 0 6px rgba(232,212,77,.5);}
+.bdg.rm{background:rgba(29,233,182,.08);color:var(--accent);}
+.mlt{font-family:'DM Mono',monospace;font-size:.52rem;background:rgba(29,233,182,.1);color:var(--accent);border:1px solid rgba(29,233,182,.2);padding:2px 5px;border-radius:3px;letter-spacing:1px;}
+.chev{color:var(--muted);font-size:.7rem;transition:transform .2s;flex-shrink:0;}
+.ex-card.open .chev{transform:rotate(180deg);}
+.ex-body{display:none;border-top:1px solid var(--border);padding:11px 13px;}
+.ex-card.open .ex-body{display:block;}
+.set-hdrs{display:grid;grid-template-columns:28px 1fr 1fr 62px;gap:5px;margin-bottom:5px;}
+.sh{font-family:'DM Mono',monospace;font-size:.52rem;color:var(--muted);text-align:center;letter-spacing:1px;text-transform:uppercase;}
+.set-row{display:grid;grid-template-columns:28px 1fr 1fr 62px;gap:5px;margin-bottom:5px;align-items:center;}
+.sl{font-family:'DM Mono',monospace;font-size:.62rem;color:var(--muted);text-align:center;}
+.si{background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:'DM Mono',monospace;font-size:.88rem;padding:7px 4px;text-align:center;width:100%;outline:none;transition:border-color .15s;-webkit-appearance:none;}
+.si:focus{border-color:var(--accent);}
+.si::placeholder{color:var(--dim);}
+.se{font-family:'DM Mono',monospace;font-size:.62rem;color:var(--muted);text-align:right;}
+.se.hi{color:var(--accent);}
+.prev-lbl{font-family:'DM Mono',monospace;font-size:.52rem;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin:8px 0 4px;}
+.prev-chips{display:flex;gap:4px;flex-wrap:wrap;}
+.pc{font-family:'DM Mono',monospace;font-size:.62rem;background:var(--border);color:var(--muted);padding:2px 6px;border-radius:3px;}
+.save-btn{margin-top:10px;width:100%;background:var(--accent);border:none;border-radius:4px;color:#001a14;font-family:'Barlow Condensed',sans-serif;font-size:.88rem;font-weight:900;letter-spacing:2px;padding:9px;cursor:pointer;text-transform:uppercase;transition:opacity .15s;}
+.save-btn:active{opacity:.8;}
+.wu-block{background:var(--card);border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.wu-toggle{display:flex;align-items:center;justify-content:space-between;padding:10px 13px;cursor:pointer;font-family:'DM Mono',monospace;font-size:.6rem;color:var(--muted);letter-spacing:1px;text-transform:uppercase;user-select:none;}
+.wu-body{display:none;border-top:1px solid var(--border);}
+.wu-block.open .wu-body{display:block;}
+.wu-block.open .chev{transform:rotate(180deg);}
+.wu-row{display:flex;justify-content:space-between;align-items:center;padding:8px 13px;border-bottom:1px solid var(--dim);font-size:.85rem;}
+.wu-row:last-child{border-bottom:none;}
+.wu-rx{font-family:'DM Mono',monospace;font-size:.68rem;color:var(--accent);}
+.info-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;}
+::-webkit-scrollbar{width:3px;}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%) translateY(60px);background:var(--green);color:#001a14;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:.85rem;letter-spacing:2px;padding:9px 18px;border-radius:4px;transition:transform .3s cubic-bezier(.34,1.56,.64,1);z-index:999;pointer-events:none;}
+.toast.on{transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<div class="hdr">
+  <div class="logo">LIFTLOG<small>AI · 12-WEEK PROGRAM</small></div>
+  <div style="display:flex;align-items:center;gap:8px;">
+    <div class="status-dot" id="status-dot" onclick="showLastStatus()"></div>
+    <div class="today" id="today-label"></div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab" id="tab-overview" onclick="switchTab('overview')">Overview</button>
+  <button class="tab on" id="tab-workout"  onclick="switchTab('workout')">Workout</button>
+  <button class="tab" id="tab-chat"     onclick="switchTab('chat')">Coach AI</button>
+</div>
+
+<div class="screens">
+
+  <!-- OVERVIEW -->
+  <div class="screen" id="screen-overview">
+    <div class="overview">
+      <div>
+        <div class="sec-head">Strength Progress</div>
+        <div class="stats-grid">
+          <div class="stat" id="stat-squat"><div class="stat-lbl">Squat 1RM</div><div class="stat-val" id="val-squat">250</div><div class="stat-sub">Target: <span>315 lbs</span></div></div>
+          <div class="stat" id="stat-bench"><div class="stat-lbl">Bench 1RM</div><div class="stat-val" id="val-bench">205</div><div class="stat-sub">Target: <span>275 lbs</span></div></div>
+          <div class="stat" id="stat-dead"><div class="stat-lbl">Deadlift 1RM</div><div class="stat-val" id="val-dead">255</div><div class="stat-sub">Target: <span>410 lbs</span></div></div>
+          <div class="stat" id="stat-total"><div class="stat-lbl">Big 3 Total</div><div class="stat-val" id="val-total">710</div><div class="stat-sub">Target: <span>1,000 lbs</span></div></div>
+        </div>
+      </div>
+      <div>
+        <div class="sec-head">Progress Charts</div>
+        <div class="charts-grid">
+          <div class="chart-card"><div class="chart-title">Squat</div><div class="chart-sub">e1RM vs goal</div><div class="chart-wrap"><canvas id="chart-squat"></canvas></div></div>
+          <div class="chart-card"><div class="chart-title">Bench</div><div class="chart-sub">e1RM vs goal</div><div class="chart-wrap"><canvas id="chart-bench"></canvas></div></div>
+          <div class="chart-card"><div class="chart-title">Deadlift</div><div class="chart-sub">e1RM vs goal</div><div class="chart-wrap"><canvas id="chart-dead"></canvas></div></div>
+          <div class="chart-card"><div class="chart-title">Big 3</div><div class="chart-sub">Combined e1RM</div><div class="chart-wrap"><canvas id="chart-total"></canvas></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WORKOUT -->
+  <div class="workout-screen on" id="screen-workout">
+    <div class="week-strip">
+      <div class="wsn">
+        <button onclick="changeWeek(-1)">‹</button>
+        <span id="week-label">WEEK 1</span>
+        <button onclick="changeWeek(1)">›</button>
+      </div>
+      <div class="wdays" id="week-days"></div>
+    </div>
+    <div class="exs" id="center-panel">
+      <div style="color:var(--muted);font-family:'DM Mono',monospace;font-size:.7rem;text-align:center;padding-top:30px;">Select a day above</div>
+    </div>
+  </div>
+
+  <!-- CHAT -->
+  <div class="chat-screen" id="screen-chat">
+    <div class="chat-hdr">
+      <div class="aidot"></div>
+      <div><div class="chat-hdr-title">Coach Claude</div><div class="chat-hdr-sub">Log sets · swap exercises · ask anything</div></div>
+    </div>
+    <div class="msgs" id="chat-messages"></div>
+    <div class="cin-wrap">
+      <textarea class="cin" id="chat-input" placeholder="Log a set, ask about form..." rows="1"
+        onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+      <button class="sbtn" id="send-btn" onclick="sendMessage()">↑</button>
+    </div>
+  </div>
+
+</div><!-- screens -->
+</div><!-- shell -->
+<div class="toast" id="toast">SAVED ✓</div>
+<div class="rec-tooltip" id="rec-tooltip">
+  <div class="rec-tooltip-hdr">
+    <div class="rec-tooltip-title">✨ Coach's Reasoning</div>
+    <button class="rec-tooltip-close" onclick="hideRecTooltip()">✕</button>
+  </div>
+  <div class="rec-tooltip-weight" id="rec-tooltip-weight"></div>
+  <div class="rec-tooltip-body" id="rec-tooltip-body"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// PROGRAM DATA
+// ═══════════════════════════════════════════════════════════
+const PROGRAM_START = new Date(2026, 6, 6); // July 6 2026 local
+
+const PROGRAM = {
+  sun: {
+    title:'SUNDAY', subtitle:'Legs · 5×5 Strength Day', zone2:null,
+    warmup:[
+      {name:'Couch Stretch',prescription:'2 × 90s/side'},
+      {name:'90/90 Hip Stretch',prescription:'2 × 45s/side'},
+      {name:"World's Greatest Stretch",prescription:'5/side'},
+      {name:'Glute Bridges',prescription:'20 reps'},
+      {name:'Squat Ramp @ 50/65/80%',prescription:'3 × 3 each'},
+    ],
+    exercises:[
+      {id:'squat',    name:'Back Squat',              sets:5,reps:5, note:'3 min rest · neutral spine · +5/wk', mainLift:true, big3:'squat'},
+      {id:'legpress', name:'Leg Press',               sets:5,reps:5, note:'Heavy · full ROM · +10/wk',          mainLift:true},
+      {id:'hipthrust',name:'Hip Thrust (Glute Drive)',sets:5,reps:5, note:'Full extension · squeeze · +5/wk',   mainLift:true},
+      {id:'bss',      name:'Bulgarian Split Squat',   sets:3,reps:8, note:'Per side · barbell or DB'},
+      {id:'legcurl',  name:'Leg Curl (Machine)',       sets:3,reps:10,note:'Slow 3s eccentric'},
+      {id:'birddog',  name:'Bird Dog',                 sets:3,reps:10,note:'Per side · spine neutral'},
+      {id:'deadbug',  name:'Dead Bug',                 sets:3,reps:10,note:'Lower back flat to floor'},
+      {id:'pallof',   name:'Pallof Press',             sets:3,reps:10,note:'Per side · anti-rotation'},
+      {id:'kbrtw',    name:'KB Round the World',       sets:3,reps:10,note:'Per direction · core braced'},
+    ]
+  },
+  mon: {
+    title:'MONDAY', subtitle:'Push · 5×5 Strength Day', zone2:null,
+    warmup:[
+      {name:'Band Pull-Aparts',prescription:'3 × 15'},
+      {name:'Face Pulls (light)',prescription:'2 × 15'},
+      {name:'Arm Circles',prescription:'10 fwd + 10 back'},
+      {name:'Shoulder CARs',prescription:'5/side · slow'},
+      {name:'Bench Ramp @ 50/65/80%',prescription:'3 × 3 each'},
+    ],
+    exercises:[
+      {id:'bench',    name:'Flat Barbell Bench Press',sets:5,reps:5, note:'3 min rest · +5/wk', mainLift:true, big3:'bench'},
+      {id:'ohp',      name:'Military Press (Barbell)', sets:5,reps:5, note:'Strict · no leg drive · +5/wk', mainLift:true},
+      {id:'dips',     name:'Weighted Dips',            sets:5,reps:5, note:'Upright torso · +5/wk', mainLift:true},
+      {id:'inclinedb',name:'Incline DB Press',         sets:3,reps:10,note:'Upper chest · slow eccentric'},
+      {id:'laterals', name:'Lateral Cable Raises',     sets:4,reps:15,note:'Cable · no swinging'},
+      {id:'facepull', name:'Face Pulls',               sets:3,reps:15,note:'Rope · elbows high'},
+      {id:'abwheel',  name:'Ab Wheel Rollout',         sets:3,reps:8, note:'No lower back arch'},
+      {id:'hanging',  name:'Hanging Leg Raises',       sets:3,reps:12,note:'No swing · control descent'},
+    ]
+  },
+  tue:{title:'TUESDAY',  subtitle:'Zone 2 · Five Iron · Flexibility', golf:true, zone2:'Zone 2 Run · 15–20 min · 130–145 BPM · before golf', exercises:[], warmup:[]},
+  wed:{title:'WEDNESDAY',subtitle:"Barry's HIIT · Chest / Back / Abs", barrys:true, zone2:null, exercises:[], warmup:[]},
+  thu: {
+    title:'THURSDAY', subtitle:'Pull · 5×5 Strength Day', zone2:null,
+    warmup:[
+      {name:'Cat-Cow',prescription:'2 × 10'},
+      {name:'Glute Bridge',prescription:'20 reps'},
+      {name:'Hip Hinge with Dowel',prescription:'10 reps'},
+      {name:'Dead Hang',prescription:'2 × 30s'},
+      {name:'Deadlift Ramp @ 50/65/80%',prescription:'3 × 3 each'},
+    ],
+    exercises:[
+      {id:'dead',     name:'Conventional Deadlift',   sets:5,reps:5, note:'Reset every rep · NEUTRAL SPINE · +5/wk', mainLift:true, big3:'dead'},
+      {id:'bbrow',    name:'Barbell Row',              sets:5,reps:5, note:'Overhand · chest to bar · +5/wk', mainLift:true},
+      {id:'pullup',   name:'Weighted Pull-Ups',        sets:5,reps:5, note:'Dead hang each rep · +2.5/wk', mainLift:true},
+      {id:'preacher', name:'Preacher Curl (Barbell)',  sets:5,reps:5, note:'Full stretch at bottom · +5/wk', mainLift:true},
+      {id:'seatedrow',name:'Seated Cable Row',         sets:3,reps:10,note:'Neutral grip · squeeze'},
+      {id:'hammer',   name:'Hammer Curl',              sets:3,reps:12,note:'Neutral grip · brachialis'},
+      {id:'mcgillcu', name:'McGill Curl-Up',           sets:3,reps:8, note:'Hands under lower back'},
+      {id:'sideplank',name:'Side Plank',               sets:3,reps:30,note:'Seconds per side'},
+      {id:'suitcase', name:'Suitcase Carry',           sets:3,reps:40,note:'40 steps/side · heavy DB'},
+    ]
+  },
+  fri:{title:'FRIDAY',   subtitle:'Intervals · Five Iron · Flexibility', golf:true, zone2:'Interval Run · see phases · before golf', exercises:[], warmup:[]},
+  sat: {
+    title:'SATURDAY', subtitle:'Full Body Top-Up · Zone 2 or Golf Round',
+    zone2:'Zone 2 Outdoor Run · 20–30 min OR golf round',
+    warmup:[
+      {name:'Couch Stretch',prescription:'90s/side'},
+      {name:"World's Greatest Stretch",prescription:'5/side'},
+      {name:'Band Pull-Aparts',prescription:'15 reps'},
+    ],
+    exercises:[
+      {id:'sat_squat',name:'Back Squat (if needed)', sets:4,reps:5,note:'~80% of Sunday weight'},
+      {id:'sat_dead', name:'Deadlift (if needed)',   sets:4,reps:5,note:'~80% · only if Thu incomplete'},
+      {id:'sat_bench',name:'Bench (if needed)',      sets:4,reps:5,note:'~80% · fill gaps from Mon'},
+      {id:'sat_pull', name:'Pull-Ups (always good)', sets:3,reps:8,note:'BW or light'},
+      {id:'sat_core', name:'Core Circuit',           sets:3,reps:10,note:'Bird dog + dead bug + pallof'},
+    ]
+  }
+};
+
+const INTERVAL_PHASES = [
+  {weeks:'Weeks 1–4', range:[1,4],  workout:'6–8 × 400m',     target:'1:42–1:48 pace · 90s rest'},
+  {weeks:'Weeks 5–8', range:[5,8],  workout:'4 × 800m',        target:'3:35–3:45 pace · 2 min rest'},
+  {weeks:'Weeks 9–12',range:[9,12], workout:'3 × 1200m tempo', target:'7:45/mi pace · 2 min rest'},
+];
+
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// MINIMAL STATUS INDICATOR (tiny dot, tap to see last message)
+// ═══════════════════════════════════════════════════════════
+let lastStatusMsg = null;
+
+function setStatusDot(level, msg){
+  lastStatusMsg = {level, msg, time: new Date()};
+  const dot = document.getElementById('status-dot');
+  if(!dot) return;
+  dot.className = `status-dot ${level}`;
+  dot.style.display = 'block';
+}
+
+function showLastStatus(){
+  if(!lastStatusMsg) return;
+  document.getElementById('rec-tooltip-weight').textContent = lastStatusMsg.level==='error' ? '⛔ Error' : lastStatusMsg.level==='warn' ? '⚠️ Warning' : 'ℹ️ Info';
+  document.getElementById('rec-tooltip-body').textContent = lastStatusMsg.msg;
+  document.getElementById('rec-tooltip').classList.add('show');
+}
+
+const _origConsoleLog = console.log.bind(console);
+const _origConsoleWarn = console.warn.bind(console);
+const _origConsoleError = console.error.bind(console);
+
+console.log = (...args) => { _origConsoleLog(...args); };
+console.warn = (...args) => { _origConsoleWarn(...args); setStatusDot('warn', args.map(String).join(' ')); };
+console.error = (...args) => { _origConsoleError(...args); setStatusDot('error', args.map(a=>a instanceof Error?a.message:String(a)).join(' ')); };
+
+window.addEventListener('error', (e) => {
+  setStatusDot('error', `${e.message} (${e.filename?.split('/').pop()}:${e.lineno})`);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  setStatusDot('error', 'Unhandled promise rejection: ' + (e.reason?.message || e.reason));
+});
+
+// ═══════════════════════════════════════════════════════════
+// PERSISTENT STORAGE (backed by Firestore, cached in memory)
+// ═══════════════════════════════════════════════════════════
+// Firestore is async, but most of the render logic below reads
+// storage synchronously many times per render. So: keep a synchronous
+// in-memory mirror (`memStore`), load it from Firestore once on
+// init, and write-through to Firestore on every save.
+//
+// Data model: single Firestore collection "liftlog_data", one document
+// per key, each doc shaped as { value: "<string>" }. Since this is a
+// single-user app, there's no per-user scoping needed.
+let memStore = {};
+let storageReady = false;
+
+const FIRESTORE_COLLECTION = 'liftlog_data';
+
+async function loadAllStorage(){
+  const fb = window.__firebase;
+  if(!fb){
+    console.warn('Firebase not available — data will not persist across reloads.');
+    storageReady = true;
+    return;
+  }
+  try{
+    const snap = await fb.getDocs(fb.collection(fb.db, FIRESTORE_COLLECTION));
+    snap.forEach(docSnap => {
+      const data = docSnap.data();
+      if(data && typeof data.value === 'string'){
+        memStore[docSnap.id] = data.value;
+      }
+    });
+  }catch(e){
+    console.error('Could not load Firestore data, starting fresh: '+e.message);
+  }
+  storageReady = true;
+}
+
+function memGet(key){
+  return memStore.hasOwnProperty(key) ? memStore[key] : null;
+}
+function memSet(key, value){
+  memStore[key] = value;
+  const fb = window.__firebase;
+  if(!fb) return; // no persistence available, stays in-memory only
+  // write-through, fire and forget — UI already has the value in memStore
+  fb.setDoc(fb.doc(fb.db, FIRESTORE_COLLECTION, key), { value }).catch(e=>{
+    console.error(`Failed to persist "${key}" to Firestore: ${e.message}`);
+  });
+}
+
+let currentWeek = parseInt(memGet('ll_week')||'1');
+let selectedDayKey = memGet('ll_day')||'mon';
+let charts = {};
+let isSending = false;
+
+// AI-driven weight recommendations — keyed by "week_day_exerciseId"
+// { weight: number, reason: string, source: 'ai'|'formula' }
+let aiRecs = {};
+let aiRecsLoadingFor = null; // "week_day" currently being fetched, to avoid duplicate calls
+
+// ═══════════════════════════════════════════════════════════
+// STORAGE
+// ═══════════════════════════════════════════════════════════
+function skey(w,d,e,s){return `ll_s_w${w}_${d}_${e}_s${s}`;}
+function saveSet(w,d,e,s,wt,r){memSet(skey(w,d,e,s), JSON.stringify({weight:wt,reps:r}));}
+function loadSet(w,d,e,s){const r=memGet(skey(w,d,e,s));return r?JSON.parse(r):null;}
+function loadSets(w,d,e,n){return Array.from({length:n},(_,i)=>loadSet(w,d,e,i)||{weight:0,reps:0});}
+function calc1RM(w,r){return(!w||!r)?0:Math.round(w*r*0.0333+w);}
+function bestE1RM(exId,dayKey){
+  let best=0;
+  for(let w=1;w<=12;w++){
+    const day=PROGRAM[dayKey]; if(!day)continue;
+    const ex=day.exercises.find(e=>e.id===exId); if(!ex)continue;
+    for(let s=0;s<ex.sets;s++){
+      const set=loadSet(w,dayKey,exId,s);
+      if(set?.weight&&set?.reps){const rm=calc1RM(set.weight,set.reps);if(rm>best)best=rm;}
+    }
+  }
+  return best;
+}
+function e1RMHist(exId,dayKey){
+  const pts=[];
+  for(let w=1;w<=12;w++){
+    const day=PROGRAM[dayKey]; if(!day)continue;
+    const ex=day.exercises.find(e=>e.id===exId); if(!ex)continue;
+    let wb=0;
+    for(let s=0;s<ex.sets;s++){
+      const set=loadSet(w,dayKey,exId,s);
+      if(set?.weight&&set?.reps){const rm=calc1RM(set.weight,set.reps);if(rm>wb)wb=rm;}
+    }
+    if(wb>0)pts.push({week:w,val:wb});
+  }
+  return pts;
+}
+// Weekly progression increment per exercise (lbs). Falls back to 5 if not listed.
+const PROGRESSION_INCREMENT = {
+  legpress: 10,
+  pullup: 2.5,
+};
+
+// Known estimated 1RMs for the Big 3 (from conversation/profile)
+const KNOWN_1RM = {
+  squat: 250,
+  bench: 205,
+  dead: 255,
+};
+
+// % of 1RM to use for a 5-rep top set (standard 5x5 starting intensity)
+const FIVE_REP_PCT = 0.78; // ~78% of 1RM is a common estimate for a solid 5RM
+
+// For main lifts without a stated 1RM, estimate a reasonable 5RM starting point
+// as a ratio of bodyweight or of a related Big 3 lift. Athlete is ~162lbs.
+const BODYWEIGHT = 162;
+const WEEK1_ESTIMATE = {
+  squat:     Math.round(KNOWN_1RM.squat * FIVE_REP_PCT / 5) * 5,       // ~195
+  bench:     Math.round(KNOWN_1RM.bench * FIVE_REP_PCT / 5) * 5,       // ~160
+  dead:      Math.round(KNOWN_1RM.dead * FIVE_REP_PCT / 5) * 5,        // ~200
+  legpress:  Math.round(KNOWN_1RM.squat * 1.8 / 10) * 10,              // leg press ~1.8x squat 1RM, heavier is fine for 5x5
+  hipthrust: Math.round(BODYWEIGHT * 1.0 / 5) * 5,                     // ~160, conservative start
+  ohp:       Math.round(KNOWN_1RM.bench * 0.55 / 5) * 5,               // OHP ~55% of bench
+  dips:      Math.round(BODYWEIGHT * 0.3 / 5) * 5,                     // BW + ~30% added, conservative
+  bbrow:     Math.round(KNOWN_1RM.dead * 0.5 / 5) * 5,                 // barbell row ~50% of deadlift
+  pullup:    Math.round(BODYWEIGHT * 0.1 / 2.5) * 2.5,                 // BW + light added weight to start
+  preacher:  45,                                                       // conservative starting barbell curl weight
+};
+
+function recWeight(exId,dayKey,numSets,targetReps){
+  if(currentWeek<=1){
+    // No prior week — estimate a starting weight from known 1RMs / bodyweight ratios
+    return WEEK1_ESTIMATE[exId] ?? null;
+  }
+  const ps=loadSets(currentWeek-1,dayKey,exId,numSets);
+  const logged=ps.filter(s=>s.weight>0);
+  if(!logged.length)return WEEK1_ESTIMATE[exId] ?? null; // fallback if last week wasn't logged either
+
+  // Did they complete ALL sets at the target reps, all at the same weight?
+  const allSetsLogged = logged.length>=numSets;
+  const topWeight = Math.max(...logged.map(s=>s.weight));
+  const setsAtTopWeight = logged.filter(s=>s.weight===topWeight);
+  const hitAllRepsAtTop = setsAtTopWeight.length>=numSets && setsAtTopWeight.every(s=>s.reps>=targetReps);
+
+  const inc = PROGRESSION_INCREMENT[exId] ?? 5;
+
+  if(allSetsLogged && hitAllRepsAtTop){
+    // Clean 5x5 (or Nx5) at the top weight — progress up
+    return topWeight + inc;
+  }
+  // Missed a rep somewhere, or didn't complete all sets at top weight — repeat the same weight
+  return topWeight;
+}
+
+function isDayDone(w,dk){
+  const day=PROGRAM[dk]; if(!day||!day.exercises.length)return false;
+  return day.exercises.every(ex=>{
+    for(let s=0;s<ex.sets;s++){const set=loadSet(w,dk,ex.id,s);if(set?.weight>0)return true;}
+    return false;
+  });
+}
+function isDayPartial(w,dk){
+  const day=PROGRAM[dk]; if(!day||!day.exercises.length)return false;
+  return day.exercises.some(ex=>{
+    for(let s=0;s<ex.sets;s++){const set=loadSet(w,dk,ex.id,s);if(set?.weight>0)return true;}
+    return false;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// DATES
+// ═══════════════════════════════════════════════════════════
+function getProgramDate(week,dayKey){
+  const off={mon:0,tue:1,wed:2,thu:3,fri:4,sat:5,sun:6};
+  const d=off[dayKey]??0;
+  return new Date(PROGRAM_START.getFullYear(),PROGRAM_START.getMonth(),PROGRAM_START.getDate()+(week-1)*7+d);
+}
+function getDayStatus(week,dayKey){
+  const date=getProgramDate(week,dayKey);
+  const now=new Date();
+  const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  if(date>today)return'future';
+  const day=PROGRAM[dayKey];
+  if(day?.barrys||!day?.exercises?.length)return date.getTime()===today.getTime()?'today':'missed';
+  if(isDayDone(week,dayKey))return'completed';
+  if(isDayPartial(week,dayKey))return'partial';
+  return date.getTime()===today.getTime()?'today':'missed';
+}
+
+// ═══════════════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════════════
+function switchTab(t){
+  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('on'));
+  document.querySelectorAll('.screen,.workout-screen,.chat-screen').forEach(s=>s.classList.remove('on'));
+  document.getElementById('tab-'+t).classList.add('on');
+  document.getElementById('screen-'+t).classList.add('on');
+  if(t==='overview')updateStats();
+}
+
+// ═══════════════════════════════════════════════════════════
+// WEEK STRIP
+// ═══════════════════════════════════════════════════════════
+function renderWeekStrip(){
+  const c=document.getElementById('week-days'); if(!c)return;
+  const keys=['mon','tue','wed','thu','fri','sat','sun'];
+  const lbls=['MON','TUE','WED','THU','FRI','SAT','SUN'];
+  c.innerHTML=keys.map((dk,i)=>{
+    const date=getProgramDate(currentWeek,dk);
+    const num=date.getDate();
+    const st=getDayStatus(currentWeek,dk);
+    const sel=dk===selectedDayKey;
+    const dot=st==='completed'?'var(--green)':st==='partial'?'var(--accent)':st==='today'?'var(--blue)':'transparent';
+    return`<div class="wday${sel?' sel':''} ${st}" onclick="selectDay('${dk}')">
+      <div class="wday-lbl">${lbls[i]}</div>
+      <div class="wday-num">${num}</div>
+      <div class="wday-dot" style="background:${sel?'transparent':dot}"></div>
+    </div>`;
+  }).join('');
+}
+function changeWeek(d){
+  currentWeek=Math.max(1,Math.min(12,currentWeek+d));
+  memSet('ll_week', String(currentWeek));
+  document.getElementById('week-label').textContent=`WEEK ${currentWeek}`;
+  renderWeekStrip();
+  renderDay(selectedDayKey);
+  updateStats();
+}
+function selectDay(dk){
+  selectedDayKey=dk;
+  memSet('ll_day', dk);
+  renderWeekStrip();
+  renderDay(dk);
+}
+
+// ═══════════════════════════════════════════════════════════
+// RENDER DAY
+// ═══════════════════════════════════════════════════════════
+function renderDay(dk){
+  const panel=document.getElementById('center-panel');
+  const day=PROGRAM[dk]; if(!day){panel.innerHTML='';return;}
+
+  let h=`<div><div class="day-title">${day.title}</div><div class="day-sub">${day.subtitle}</div></div>`;
+
+  if(day.zone2)h+=`<div class="z2">🫀 ${day.zone2}</div>`;
+
+  if(day.barrys){
+    h+=`<div class="info-card"><div class="sec-head">Today's Class</div>
+      <div style="font-size:.88rem;color:var(--muted);line-height:1.7">
+        Barry's HIIT — Chest, Back, Abs.<br>
+        Treadmill intervals + floor work.<br>
+        <strong style="color:var(--text)">This is your cardio for the day.</strong> No separate Zone 2 needed.<br>
+        Push the treadmill blocks — that's your mile training.
+      </div></div>`;
+    panel.innerHTML=h; return;
+  }
+
+  if(day.golf){
+    const phase=INTERVAL_PHASES.find(p=>currentWeek>=p.range[0]&&currentWeek<=p.range[1]);
+    if(dk==='fri'&&phase){
+      h+=`<div class="info-card" style="border-left:3px solid var(--accent)">
+        <div class="sec-head">Current Interval Phase</div>
+        <div style="font-size:.9rem;font-weight:700">${phase.workout}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:.62rem;color:var(--muted);margin-top:3px">${phase.target} · ${phase.weeks}</div>
+      </div>`;
+    }
+    h+=`<div class="info-card"><div class="sec-head">Golf Power Cues</div>
+      ${['Lead hip clears FIRST — bump hips toward target before arms move.',
+         'Push into the ground — vertical force like a jump.',
+         'Tee height — half ball above face, 2–4° upward attack angle.',
+         '80% effort = more speed — stay loose through the ball.'
+        ].map((c,i)=>`<div style="padding:7px 0;border-top:1px solid var(--dim);font-size:.85rem"><span style="color:var(--accent);margin-right:8px">${['①','②','③','④'][i]}</span>${c}</div>`).join('')}
+    </div>`;
+    panel.innerHTML=h; return;
+  }
+
+  if(day.warmup?.length){
+    h+=`<div class="wu-block" id="wu-${dk}">
+      <div class="wu-toggle" onclick="document.getElementById('wu-${dk}').classList.toggle('open')">
+        🔥 Warm-Up Protocol <span class="chev">▾</span>
+      </div>
+      <div class="wu-body">
+        ${day.warmup.map(w=>`<div class="wu-row"><span>${w.name}</span><span class="wu-rx">${w.prescription}</span></div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  day.exercises.forEach(ex=>{
+    const sets=loadSets(currentWeek,dk,ex.id,ex.sets);
+    const prev=currentWeek>1?loadSets(currentWeek-1,dk,ex.id,ex.sets):[];
+    const recKey = `${currentWeek}_${dk}_${ex.id}`;
+    const aiRec = aiRecs[recKey];
+    const rec = aiRec ? aiRec.weight : recWeight(ex.id,dk,ex.sets,ex.reps);
+    const hasReason = !!(aiRec && aiRec.reason);
+    const bestRM=Math.max(...sets.map(s=>calc1RM(s.weight,s.reps)).filter(Boolean),0);
+    const done=sets.filter(s=>s.weight>0).length>=ex.sets;
+    const empty=!sets.some(s=>s.weight>0);
+
+    const rows=Array.from({length:ex.sets},(_,i)=>{
+      const s=sets[i];
+      const pf=empty&&rec?rec:(s?.weight||'');
+      const rm=s?.weight&&s?.reps?calc1RM(s.weight,s.reps):'';
+      return`<div class="set-row">
+        <div class="sl">S${i+1}</div>
+        <input class="si" type="number" inputmode="decimal" placeholder="${rec||'lbs'}" value="${pf||''}"
+          id="w-${dk}-${ex.id}-${i}" oninput="upRM('${dk}','${ex.id}',${i})">
+        <input class="si" type="number" inputmode="numeric" placeholder="${ex.reps}" value="${s?.reps||''}"
+          id="r-${dk}-${ex.id}-${i}" oninput="upRM('${dk}','${ex.id}',${i})">
+        <div class="se${rm?' hi':''}" id="e-${dk}-${ex.id}-${i}">${rm?rm+' e1RM':'—'}</div>
+      </div>`;
+    }).join('');
+
+    const prevH=prev.filter(s=>s.weight>0).length?`<div class="prev-lbl">Last Week</div>
+      <div class="prev-chips">${prev.filter(s=>s.weight>0).map(s=>`<span class="pc">${s.weight}×${s.reps}</span>`).join('')}</div>`:''
+
+    h+=`<div class="ex-card${done?' done':''}${ex.mainLift?' ml':''}" id="ec-${dk}-${ex.id}">
+      <div class="ex-hdr" onclick="document.getElementById('ec-${dk}-${ex.id}').classList.toggle('open')">
+        <div class="ex-l">
+          <div class="ex-dot"></div>
+          <div>
+            <div class="ex-nm">${ex.name}${ex.mainLift?' <span class="mlt">5×5</span>':''}</div>
+            <div class="ex-mt">${ex.sets}s · ${ex.reps}r · ${ex.note}</div>
+          </div>
+        </div>
+        <div class="ex-r">
+          ${rec?`<span class="bdg rec${hasReason?' tappable':''}" ${hasReason?`onclick="event.stopPropagation();showRecTooltip('${recKey}', this)"`:''}>${hasReason?'✨':'🎯'}${rec}</span>`:''}
+          ${bestRM?`<span class="bdg rm">${bestRM}</span>`:''}
+          <span class="chev">▾</span>
+        </div>
+      </div>
+      <div class="ex-body">
+        <div class="set-hdrs"><div></div><div class="sh">Weight</div><div class="sh">Reps</div><div class="sh">e1RM</div></div>
+        ${rows}${prevH}
+        <button class="save-btn" onclick="saveEx('${dk}','${ex.id}',${ex.sets})">SAVE</button>
+      </div>
+    </div>`;
+  });
+
+  panel.innerHTML=h;
+  fetchAIRecsForDay(dk);
+}
+
+function upRM(dk,exId,i){
+  const w=parseFloat(document.getElementById(`w-${dk}-${exId}-${i}`)?.value)||0;
+  const r=parseInt(document.getElementById(`r-${dk}-${exId}-${i}`)?.value)||0;
+  const rm=w&&r?calc1RM(w,r):0;
+  const el=document.getElementById(`e-${dk}-${exId}-${i}`);
+  if(el){el.textContent=rm?rm+' e1RM':'—';el.className=`se${rm?' hi':''}`;}
+}
+
+function saveEx(dk,exId,n){
+  for(let i=0;i<n;i++){
+    const w=parseFloat(document.getElementById(`w-${dk}-${exId}-${i}`)?.value)||0;
+    const r=parseInt(document.getElementById(`r-${dk}-${exId}-${i}`)?.value)||0;
+    saveSet(currentWeek,dk,exId,i,w,r);
+  }
+  renderDay(dk);updateStats();renderWeekStrip();showToast('SAVED ✓');
+}
+
+// ═══════════════════════════════════════════════════════════
+// STATS & CHARTS
+// ═══════════════════════════════════════════════════════════
+function updateStats(){
+  const sq=bestE1RM('squat','sun')||250;
+  const be=bestE1RM('bench','mon')||205;
+  const de=bestE1RM('dead','thu') ||255;
+  const tot=sq+be+de;
+  document.getElementById('val-squat').textContent=sq;
+  document.getElementById('val-bench').textContent=be;
+  document.getElementById('val-dead').textContent=de;
+  document.getElementById('val-total').textContent=tot;
+  document.getElementById('stat-squat').style.setProperty('--prog',Math.min(100,sq/315*100).toFixed(1)+'%');
+  document.getElementById('stat-bench').style.setProperty('--prog',Math.min(100,be/275*100).toFixed(1)+'%');
+  document.getElementById('stat-dead').style.setProperty('--prog', Math.min(100,de/410*100).toFixed(1)+'%');
+  document.getElementById('stat-total').style.setProperty('--prog',Math.min(100,tot/1000*100).toFixed(1)+'%');
+  renderCharts();
+}
+
+function mkChart(id,hist,base,target,color){
+  if(charts[id])charts[id].destroy();
+  const ctx=document.getElementById(id); if(!ctx)return;
+  const wks=Array.from({length:12},(_,i)=>i+1);
+  const actual=wks.map(w=>{const p=hist.find(h=>h.week===w);return p?p.val:null;});
+  const goal=wks.map(w=>Math.round(base+(target-base)/11*(w-1)));
+  charts[id]=new Chart(ctx,{
+    type:'line',
+    data:{labels:wks.map(w=>`W${w}`),datasets:[
+      {label:'Actual',data:actual,borderColor:color,backgroundColor:color+'18',fill:true,tension:.4,
+       pointRadius:actual.map(v=>v!==null?3:0),pointBackgroundColor:color,borderWidth:2,spanGaps:false},
+      {label:'Goal',data:goal,borderColor:'rgba(255,255,255,.15)',borderDash:[4,3],borderWidth:1,pointRadius:0,fill:false}
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'#161616',borderColor:'#222',borderWidth:1,
+        titleColor:'#666',bodyColor:'#f0ede6',titleFont:{family:'DM Mono',size:9},bodyFont:{family:'DM Mono',size:10}}},
+      scales:{
+        x:{ticks:{color:'#555',font:{family:'DM Mono',size:8}},grid:{color:'#1a1a1a'}},
+        y:{ticks:{color:'#555',font:{family:'DM Mono',size:8}},grid:{color:'#1a1a1a'},suggestedMin:0}
+      }
+    }
+  });
+}
+
+function renderCharts(){
+  const tot=[];
+  for(let w=1;w<=12;w++){
+    const sq=e1RMHist('squat','sun').find(p=>p.week===w);
+    const be=e1RMHist('bench','mon').find(p=>p.week===w);
+    const de=e1RMHist('dead','thu').find(p=>p.week===w);
+    if(sq||be||de)tot.push({week:w,val:(sq?.val||250)+(be?.val||205)+(de?.val||255)});
+  }
+  mkChart('chart-squat',e1RMHist('squat','sun'),250,315,'#1de9b6');
+  mkChart('chart-bench',e1RMHist('bench','mon'),205,275,'#5ca8e8');
+  mkChart('chart-dead', e1RMHist('dead','thu'), 255,410,'#e05252');
+  mkChart('chart-total',tot,710,1000,'#3ab26e');
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHAT
+// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// AI WEIGHT RECOMMENDATIONS
+// ═══════════════════════════════════════════════════════════
+
+function buildHistoryForExercise(exId, dayKey, upToWeek){
+  const lines=[];
+  const day=PROGRAM[dayKey];
+  const ex=day?.exercises.find(e=>e.id===exId);
+  if(!ex)return '';
+  for(let w=1;w<upToWeek;w++){
+    const sets=loadSets(w,dayKey,exId,ex.sets).filter(s=>s.weight>0);
+    if(sets.length) lines.push(`  W${w}: ${sets.map(s=>`${s.weight}×${s.reps}`).join(', ')}`);
+  }
+  return lines.length ? lines.join('\n') : '  No data logged yet';
+}
+
+async function fetchAIRecsForDay(dayKey){
+  const day = PROGRAM[dayKey];
+  if(!day || !day.exercises?.length) return;
+
+  const fetchKey = `${currentWeek}_${dayKey}`;
+  if(aiRecsLoadingFor === fetchKey) return; // already in flight
+  // Skip if we already have recs cached for every exercise this day
+  const allCached = day.exercises.every(ex => aiRecs[`${currentWeek}_${dayKey}_${ex.id}`]);
+  if(allCached) return;
+
+  aiRecsLoadingFor = fetchKey;
+
+  const exerciseBlocks = day.exercises.map(ex => {
+    const inc = PROGRESSION_INCREMENT[ex.id] ?? 5;
+    const known1RM = KNOWN_1RM[ex.id];
+    return `${ex.id} | ${ex.name} | ${ex.sets}x${ex.reps} target | weekly increment +${inc}lbs${known1RM ? ` | known 1RM: ${known1RM}lbs` : ''}
+History:
+${buildHistoryForExercise(ex.id, dayKey, currentWeek)}`;
+  }).join('\n\n');
+
+  const week1Note = currentWeek<=1 ? `
+This is WEEK 1 — there is no prior week to reference. For each exercise, estimate a sensible starting 5-rep-set weight:
+- For Squat, Bench, Deadlift: use the known 1RM × ~75-78%, rounded to nearest 5lbs. This should be a weight completable for 5x5 with 1-2 reps in reserve on the last set, not a max effort.
+- For other main lifts without a stated 1RM (Leg Press, Hip Thrust, Military Press, Weighted Dips, Barbell Row, Weighted Pull-Ups, Preacher Curl): estimate a conservative starting weight using standard strength ratios relative to the Big 3 lifts and ~162lbs bodyweight. Err conservative — better to start light and progress than start too heavy on lifts with no track record.
+- Briefly note in your reason that this is an estimated starting point since it's week 1.` : '';
+
+  const sys = `You are a strength coach analyzing training history to set next-session weight targets.
+Athlete: 5'7", ~162lbs, strength-focused, chronic lower back tightness (values conservative progression over ego lifting).
+Today: Week ${currentWeek}, ${day.title} (${day.subtitle}).
+${week1Note}
+
+For EACH exercise below, decide the weight to recommend for today's session, using standard 5x5-style linear progression logic:
+- If all sets last time were completed at target reps at the same top weight → increase by the listed increment.
+- If any set missed target reps, or sets were done at inconsistent weights (e.g. fatigue drop-off) → repeat the same top weight, do not increase.
+- If there's no history AND it's not week 1 (i.e. they skipped a week), use the last known weight from any earlier week, or fall back to a conservative estimate — do not return null.
+- Consider the athlete's back sensitivity — if you see signs of consistent difficulty (multiple stalls at the same weight, misses), you may recommend holding or even a small deload, not just repeating.
+
+EXERCISES:
+${exerciseBlocks}
+
+Respond ONLY with valid JSON, no markdown, no prose outside the JSON:
+{"recs":[{"id":"exercise_id","weight":number_or_null,"reason":"one sentence, direct, coach voice, max 20 words"}]}`;
+
+  try{
+    const res = await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        model:'claude-sonnet-4-6',
+        max_tokens: 800,
+        system: sys,
+        messages:[{role:'user', content:'Generate the recommendations now.'}]
+      })
+    });
+
+    if(!res.ok){
+      const bodyText = await res.text();
+      throw new Error(`HTTP ${res.status} ${res.statusText}: ${bodyText.slice(0,200)}`);
+    }
+
+    let data;
+    try{
+      data = await res.json();
+    }catch(jsonErr){
+      throw new Error(`Response wasn't valid JSON: ${jsonErr.message}`);
+    }
+
+    if(data.error){
+      throw new Error(`API error: ${data.error.message || JSON.stringify(data.error)}`);
+    }
+    if(!data.content?.length){
+      throw new Error('Empty response from API — no content returned');
+    }
+
+    const raw = data.content.find(b=>b.type==='text')?.text || '';
+    if(!raw){
+      throw new Error('Response contained no text block');
+    }
+
+    const cleaned = raw.replace(/```json|```/g,'').trim();
+    let parsed;
+    try{
+      parsed = JSON.parse(cleaned);
+    }catch(parseErr){
+      throw new Error(`Could not parse JSON: ${parseErr.message}. Raw: ${cleaned.slice(0,150)}`);
+    }
+
+    if(!parsed.recs || !Array.isArray(parsed.recs)){
+      throw new Error('Response JSON missing "recs" array');
+    }
+
+    parsed.recs.forEach(r=>{
+      if(r.weight!=null){
+        aiRecs[`${currentWeek}_${dayKey}_${r.id}`] = {weight:r.weight, reason:r.reason, source:'ai'};
+      }
+    });
+
+    aiRecsLoadingFor = null;
+    // Re-render if we're still looking at this day/week
+    if(selectedDayKey===dayKey) renderDay(dayKey);
+  }catch(e){
+    console.error(`AI rec fetch failed for ${dayKey} (week ${currentWeek}): ${e.message}`);
+    aiRecsLoadingFor = null;
+  }
+}
+
+function showRecTooltip(recKey, el){
+  const rec = aiRecs[recKey];
+  if(!rec) return;
+  document.getElementById('rec-tooltip-weight').textContent = `${rec.weight} lbs`;
+  document.getElementById('rec-tooltip-body').textContent = rec.reason;
+  document.getElementById('rec-tooltip').classList.add('show');
+}
+function hideRecTooltip(){
+  document.getElementById('rec-tooltip').classList.remove('show');
+}
+
+function buildSys(){
+  const summary=[];
+  for(let w=1;w<=12;w++){
+    Object.entries(PROGRAM).forEach(([dk,day])=>{
+      if(!day.exercises?.length)return;
+      day.exercises.forEach(ex=>{
+        const sets=[];
+        for(let s=0;s<ex.sets;s++){const set=loadSet(w,dk,ex.id,s);if(set?.weight>0)sets.push(`${set.weight}×${set.reps}`);}
+        if(sets.length)summary.push(`W${w} ${dk} ${ex.name}: ${sets.join(', ')}`);
+      });
+    });
+  }
+  return `You are Coach Claude, AI fitness coach in LiftLog.
+CURRENT: Week ${currentWeek}, selected day: ${selectedDayKey.toUpperCase()} (${PROGRAM[selectedDayKey]?.title})
+Today: ${new Date().toDateString()}. Program started July 6, 2026.
+
+SPLIT: Sun=Legs5×5, Mon=Push5×5, Tue=Zone2+Golf, Wed=Barry'sHIIT, Thu=Pull5×5, Fri=Intervals+Golf, Sat=TopUp
+MAIN LIFTS (5×5, +5lbs/week): Squat, LegPress(+10), HipThrust, Bench, MilitaryPress, WeightedDips, Deadlift, BarbellRow, WeightedPullUps, PreacherCurl
+ATHLETE: 5'7" ~162lbs. Goals: strength first, maintenance cals, 165g+ protein. Chronic lower back (hip flexors tight, neutral spine always). Golf 250yd avg → 300. Equinox + Five Iron.
+
+LOGGED DATA:
+${summary.length?summary.join('\n'):'No sessions yet.'}
+
+RESPONSE: Be direct — athlete is in the gym. When you detect a set to log, append:
+<ACTION>{"type":"logSet","day":"${selectedDayKey}","week":${currentWeek},"exerciseId":"ID","setIndex":N,"weight":W,"reps":R}</ACTION>
+When swapping exercise:
+<ACTION>{"type":"swapExercise","day":"${selectedDayKey}","week":${currentWeek},"exerciseId":"OLD_ID","newName":"NAME","sets":N,"reps":R,"note":"NOTE"}</ACTION>`;
+}
+
+const history=[];
+async function sendMessage(){
+  const input=document.getElementById('chat-input');
+  const msg=input.value.trim();
+  if(!msg||isSending)return;
+  input.value='';input.style.height='38px';
+  isSending=true;document.getElementById('send-btn').disabled=true;
+  addMsg('u',msg);history.push({role:'user',content:msg});
+  const tid='t'+Date.now();addTyping(tid);
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,system:buildSys(),messages:history})
+    });
+    if(!res.ok){
+      const bodyText = await res.text();
+      throw new Error(`HTTP ${res.status} ${res.statusText}: ${bodyText.slice(0,200)}`);
+    }
+    let data;
+    try{ data = await res.json(); }
+    catch(jsonErr){ throw new Error(`Response wasn't valid JSON: ${jsonErr.message}`); }
+    if(data.error) throw new Error(`API error: ${data.error.message||JSON.stringify(data.error)}`);
+    const textBlock = data.content?.find(b=>b.type==='text');
+    if(!textBlock) throw new Error('No text content in response');
+    const raw = textBlock.text;
+    const re=/<ACTION>([\s\S]*?)<\/ACTION>/g;let m;
+    while((m=re.exec(raw))!==null){try{execAction(JSON.parse(m[1]));}catch(actionErr){console.warn('Could not parse action block: '+actionErr.message);}}
+    const disp=raw.replace(/<ACTION>[\s\S]*?<\/ACTION>/g,'').trim();
+    rmTyping(tid);addMsg('a',disp);history.push({role:'assistant',content:raw});
+  }catch(e){
+    console.error('Chat message failed: '+e.message);
+    rmTyping(tid);addMsg('a','Connection error — see console message above for details.');
+  }
+  isSending=false;document.getElementById('send-btn').disabled=false;
+}
+
+function execAction(a){
+  if(a.type==='logSet'){
+    saveSet(a.week,a.day,a.exerciseId,a.setIndex,a.weight,a.reps);
+    renderDay(selectedDayKey);updateStats();renderWeekStrip();showToast('SET LOGGED ✓');
+  }
+  if(a.type==='swapExercise'){
+    const day=PROGRAM[a.day]; if(!day)return;
+    const ex=day.exercises.find(e=>e.id===a.exerciseId); if(!ex)return;
+    memSet(`ll_ov_w${a.week}_${a.day}_${a.exerciseId}`, JSON.stringify({name:a.newName,sets:a.sets,reps:a.reps,note:a.note}));
+    ex.name=a.newName;ex.sets=a.sets;ex.reps=a.reps;ex.note=a.note;
+    renderDay(selectedDayKey);showToast('SWAPPED ✓');
+  }
+}
+
+function addMsg(role,text){
+  const c=document.getElementById('chat-messages');
+  const d=document.createElement('div');d.className=`msg ${role}`;
+  const t=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  d.innerHTML=`<div class="bubble">${fmt(text)}</div><div class="msg-t">${t}</div>`;
+  c.appendChild(d);c.scrollTop=c.scrollHeight;
+}
+function fmt(t){
+  return t.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g,'<em>$1</em>')
+    .replace(/`(.*?)`/g,'<code style="background:#222;padding:1px 4px;border-radius:3px;font-family:DM Mono,monospace;font-size:.85em">$1</code>')
+    .replace(/\n/g,'<br>');
+}
+function addTyping(id){
+  const c=document.getElementById('chat-messages');
+  const d=document.createElement('div');d.className='msg a';d.id=id;
+  d.innerHTML='<div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div>';
+  c.appendChild(d);c.scrollTop=c.scrollHeight;
+}
+function rmTyping(id){document.getElementById(id)?.remove();}
+function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();}}
+function autoResize(el){el.style.height='38px';el.style.height=Math.min(el.scrollHeight,100)+'px';}
+
+// ═══════════════════════════════════════════════════════════
+// TOAST & INIT
+// ═══════════════════════════════════════════════════════════
+function showToast(m){
+  const t=document.getElementById('toast');t.textContent=m;t.classList.add('on');
+  setTimeout(()=>t.classList.remove('on'),2000);
+}
+
+function loadOverrides(){
+  for(let w=1;w<=12;w++){
+    Object.entries(PROGRAM).forEach(([dk,day])=>{
+      if(!day.exercises?.length)return;
+      day.exercises.forEach(ex=>{
+        const raw=memGet(`ll_ov_w${w}_${dk}_${ex.id}`);
+        if(raw&&w===currentWeek){const o=JSON.parse(raw);ex.name=o.name;ex.sets=o.sets;ex.reps=o.reps;ex.note=o.note;}
+      });
+    });
+  }
+}
+
+async function testStoragePersistence(){
+  const fb = window.__firebase;
+  if(!fb){
+    setStatusDot('error', 'Firebase failed to initialize. Data cannot persist — check your internet connection and reload.');
+    return false;
+  }
+  try{
+    const testKey = 'll_storage_test';
+    const testVal = 'ok_' + Date.now();
+    await fb.setDoc(fb.doc(fb.db, FIRESTORE_COLLECTION, testKey), { value: testVal });
+    const readBack = await fb.getDoc(fb.doc(fb.db, FIRESTORE_COLLECTION, testKey));
+    if(readBack.exists() && readBack.data().value === testVal){
+      return true; // persistence confirmed working
+    }else{
+      setStatusDot('error', `Firestore test failed: wrote "${testVal}" but read back something else. Persistence is unreliable.`);
+      return false;
+    }
+  }catch(e){
+    setStatusDot('error', `Firestore test threw an error: ${e.message}. Check your Firestore security rules allow read/write.`);
+    return false;
+  }
+}
+
+async function waitForFirebase(maxWaitMs = 3000){
+  const start = Date.now();
+  while(!window.__firebase && (Date.now() - start) < maxWaitMs){
+    await new Promise(r => setTimeout(r, 50));
+  }
+  return !!window.__firebase;
+}
+
+async function init(){
+  await waitForFirebase();
+  const storageWorks = await testStoragePersistence();
+
+  // Load persisted data from window.storage into the in-memory cache first
+  await loadAllStorage();
+
+  // Re-derive state now that memStore is actually populated
+  // (the top-level `let currentWeek = memGet(...)` ran before storage loaded, so it was always the default)
+  currentWeek = parseInt(memGet('ll_week')||'1');
+  selectedDayKey = memGet('ll_day')||'mon';
+
+  loadOverrides();
+  document.getElementById('week-label').textContent=`WEEK ${currentWeek}`;
+  document.getElementById('today-label').textContent=new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  renderWeekStrip();
+  renderDay(selectedDayKey);
+  updateStats();
+  const persistNote = storageWorks ? '' : ' ⚠️ Heads up — data persistence isn\'t working in this session (tap the dot in the header for details).';
+  addMsg('a',`Hey! Week ${currentWeek}, ${PROGRAM[selectedDayKey]?.title||selectedDayKey.toUpperCase()}. Log sets, ask about form, or swap exercises — whatever you need.${persistNote}`);
+}
+init();
+</script>
+</body>
+</html>
