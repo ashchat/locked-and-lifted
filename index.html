@@ -35,10 +35,10 @@
   --purple:#c87ce8; --text:#f0ede6; --muted:#666; --dim:#2a2a2a;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
-html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Barlow Condensed',sans-serif;}
+html,body{height:100%;width:100%;overflow:hidden;position:fixed;top:0;left:0;background:var(--bg);color:var(--text);font-family:'Barlow Condensed',sans-serif;overscroll-behavior:none;}
 
 /* ── SHELL ── */
-.shell{display:flex;flex-direction:column;height:100vh;height:100dvh;}
+.shell{display:flex;flex-direction:column;height:100vh;height:100dvh;width:100%;position:relative;overscroll-behavior:none;}
 
 /* ── HEADER ── */
 .hdr{
@@ -65,7 +65,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 
 /* ── SCREENS ── */
 .screens{flex:1;overflow:hidden;min-height:0;position:relative;}
-.screen{display:none;position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+.screen{display:none;position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;}
 .screen.on{display:block;}
 
 /* ── OVERVIEW SCREEN ── */
@@ -96,7 +96,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .wday-dot{width:4px;height:4px;border-radius:50%;}
 
 /* THE EXERCISES PANEL — must be flex:1 overflow-y:auto */
-.exs{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px;display:flex;flex-direction:column;gap:10px;min-height:0;}
+.exs{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:12px 12px 20px;display:flex;flex-direction:column;gap:10px;min-height:0;}
 /* CRITICAL: every direct child must not shrink, or flexbox compresses them instead of scrolling */
 .exs > *{flex-shrink:0;}
 
@@ -110,7 +110,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .api-key-btn:hover{opacity:1;}
 .aidot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite;flex-shrink:0;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-.msgs{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;padding:10px;display:flex;flex-direction:column;gap:8px;}
+.msgs{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;min-height:0;padding:10px;display:flex;flex-direction:column;gap:8px;}
 .msg{max-width:88%;}
 .msg.u{align-self:flex-end;}
 .msg.a{align-self:flex-start;}
@@ -217,10 +217,56 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%) translateY(60px);background:var(--green);color:#001a14;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:.85rem;letter-spacing:2px;padding:9px 18px;border-radius:4px;transition:transform .3s cubic-bezier(.34,1.56,.64,1);z-index:999;pointer-events:none;}
 .toast.on{transform:translateX(-50%) translateY(0);}
+/* ── LOCK SCREEN ── */
+.lock-screen{
+  position:fixed;inset:0;z-index:5000;
+  background:var(--bg);
+  display:flex;align-items:center;justify-content:center;
+  padding:20px;
+}
+.lock-card{
+  width:100%;max-width:320px;
+  display:flex;flex-direction:column;align-items:center;gap:14px;
+}
+.lock-logo{font-family:'Black Han Sans',sans-serif;font-size:1.6rem;color:var(--accent);text-align:center;}
+.lock-logo small{display:block;font-size:.6rem;font-family:'DM Mono',monospace;color:var(--muted);letter-spacing:2px;margin-top:2px;}
+.lock-label{font-family:'DM Mono',monospace;font-size:.62rem;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-top:10px;text-align:center;}
+.lock-input{
+  width:100%;background:var(--card);border:1px solid var(--border);border-radius:8px;
+  color:var(--text);font-family:'DM Mono',monospace;font-size:1.3rem;letter-spacing:6px;
+  text-align:center;padding:12px;outline:none;transition:border-color .15s;
+}
+.lock-input:focus{border-color:var(--accent);}
+.lock-btn{
+  width:100%;background:var(--accent);border:none;border-radius:8px;color:#001a14;
+  font-family:'Barlow Condensed',sans-serif;font-size:.95rem;font-weight:900;letter-spacing:2px;
+  padding:12px;cursor:pointer;text-transform:uppercase;transition:opacity .15s;
+}
+.lock-btn:active{opacity:.8;}
+.lock-error{font-family:'DM Mono',monospace;font-size:.7rem;color:var(--red);text-align:center;min-height:16px;}
+.lock-setup{width:100%;display:flex;flex-direction:column;gap:10px;align-items:center;}
 </style>
 </head>
 <body>
-<div class="shell">
+
+<!-- LOCK SCREEN -->
+<div class="lock-screen" id="lock-screen">
+  <div class="lock-card">
+    <div class="lock-logo">LIFTLOG<small>AI · 12-WEEK PROGRAM</small></div>
+    <div class="lock-label">ENTER PASSCODE</div>
+    <input class="lock-input" id="lock-input" type="password" inputmode="numeric" autocomplete="off"
+      placeholder="••••" maxlength="20" onkeydown="if(event.key==='Enter')attemptUnlock()">
+    <button class="lock-btn" onclick="attemptUnlock()">UNLOCK</button>
+    <div class="lock-error" id="lock-error"></div>
+    <div class="lock-setup" id="lock-setup" style="display:none">
+      <div class="lock-label" style="margin-top:14px">No passcode set yet — create one:</div>
+      <input class="lock-input" id="lock-setup-input" type="password" inputmode="numeric" autocomplete="off" placeholder="Choose a passcode" maxlength="20">
+      <button class="lock-btn" onclick="setupPasscode()">SET PASSCODE</button>
+    </div>
+  </div>
+</div>
+
+<div class="shell" id="app-shell" style="display:none">
 
 <div class="hdr">
   <div class="logo">LIFTLOG<small>AI · 12-WEEK PROGRAM</small></div>
@@ -1176,17 +1222,87 @@ async function waitForFirebase(maxWaitMs = 3000){
   return !!window.__firebase;
 }
 
-async function init(){
-  await waitForFirebase();
-  const storageWorks = await testStoragePersistence();
+// ═══════════════════════════════════════════════════════════
+// PASSCODE LOCK
+// ═══════════════════════════════════════════════════════════
+const UNLOCK_SESSION_KEY = 'liftlog_unlocked'; // sessionStorage — re-locks on new tab/browser restart
 
-  // Load persisted data from window.storage into the in-memory cache first
+async function sha256(text){
+  const enc = new TextEncoder().encode(text);
+  const hashBuf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(hashBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function attemptUnlock(){
+  const input = document.getElementById('lock-input').value;
+  const storedHash = memGet('ll_passcode_hash');
+  const errorEl = document.getElementById('lock-error');
+
+  if(!input){
+    errorEl.textContent = 'Enter your passcode';
+    return;
+  }
+  const inputHash = await sha256(input);
+  if(inputHash === storedHash){
+    sessionStorage.setItem(UNLOCK_SESSION_KEY, '1');
+    showApp();
+  }else{
+    errorEl.textContent = 'Incorrect passcode';
+    document.getElementById('lock-input').value = '';
+  }
+}
+
+async function setupPasscode(){
+  const input = document.getElementById('lock-setup-input').value;
+  const errorEl = document.getElementById('lock-error');
+  if(!input || input.length < 4){
+    errorEl.textContent = 'Passcode must be at least 4 characters';
+    return;
+  }
+  const hash = await sha256(input);
+  memSet('ll_passcode_hash', hash);
+  sessionStorage.setItem(UNLOCK_SESSION_KEY, '1');
+  showApp();
+}
+
+function showApp(){
+  document.getElementById('lock-screen').style.display = 'none';
+  document.getElementById('app-shell').style.display = 'flex';
+  runApp();
+}
+
+async function checkLock(){
+  await waitForFirebase();
   await loadAllStorage();
 
+  const storedHash = memGet('ll_passcode_hash');
+  const alreadyUnlockedThisSession = sessionStorage.getItem(UNLOCK_SESSION_KEY) === '1';
+
+  if(alreadyUnlockedThisSession){
+    showApp();
+    return;
+  }
+
+  if(!storedHash){
+    // First time ever — show the "set a passcode" flow instead of the unlock flow
+    document.querySelector('.lock-label').textContent = 'FIRST TIME SETUP';
+    document.getElementById('lock-input').style.display = 'none';
+    document.querySelector('.lock-btn').style.display = 'none';
+    document.getElementById('lock-setup').style.display = 'flex';
+  }
+  // else: normal lock screen (already visible by default) waits for attemptUnlock()
+}
+
+checkLock();
+
+async function init(){
+  const storageWorks = await testStoragePersistence();
+
   // Re-derive state now that memStore is actually populated
-  // (the top-level `let currentWeek = memGet(...)` ran before storage loaded, so it was always the default)
+  // (top-level `let` declarations ran before storage loaded, so they were always defaults)
   currentWeek = parseInt(memGet('ll_week')||'1');
   selectedDayKey = memGet('ll_day')||'mon';
+  anthropicApiKey = memGet('ll_api_key') || '';
 
   loadOverrides();
   document.getElementById('week-label').textContent=`WEEK ${currentWeek}`;
@@ -1198,7 +1314,10 @@ async function init(){
   const apiKeyNote = anthropicApiKey ? '' : ' ⚠️ You\'ll need to set an API key first — tap the ⚙️ above to add one.';
   addMsg('a',`Hey! Week ${currentWeek}, ${PROGRAM[selectedDayKey]?.title||selectedDayKey.toUpperCase()}. Log sets, ask about form, or swap exercises — whatever you need.${persistNote}${apiKeyNote}`);
 }
-init();
+
+function runApp(){
+  init();
+}
 </script>
 </body>
 </html>
