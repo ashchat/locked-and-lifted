@@ -106,6 +106,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 .chat-hdr{flex-shrink:0;padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;}
 .chat-hdr-title{font-size:.9rem;font-weight:700;}
 .chat-hdr-sub{font-family:'DM Mono',monospace;font-size:.58rem;color:var(--muted);}
+.api-key-btn{background:none;border:none;font-size:1rem;cursor:pointer;padding:4px 6px;opacity:.7;flex-shrink:0;}
+.api-key-btn:hover{opacity:1;}
 .aidot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite;flex-shrink:0;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 .msgs{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;min-height:0;padding:10px;display:flex;flex-direction:column;gap:8px;}
@@ -279,7 +281,8 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
   <div class="chat-screen" id="screen-chat">
     <div class="chat-hdr">
       <div class="aidot"></div>
-      <div><div class="chat-hdr-title">Coach Claude</div><div class="chat-hdr-sub">Log sets · swap exercises · ask anything</div></div>
+      <div style="flex:1"><div class="chat-hdr-title">Coach Claude</div><div class="chat-hdr-sub">Log sets · swap exercises · ask anything</div></div>
+      <button class="api-key-btn" onclick="showApiKeyPrompt()" title="Set API Key">⚙️</button>
     </div>
     <div class="msgs" id="chat-messages"></div>
     <div class="cin-wrap">
@@ -489,6 +492,7 @@ let currentWeek = parseInt(memGet('ll_week')||'1');
 let selectedDayKey = memGet('ll_day')||'mon';
 let charts = {};
 let isSending = false;
+let anthropicApiKey = memGet('ll_api_key') || '';
 
 // AI-driven weight recommendations — keyed by "week_day_exerciseId"
 // { weight: number, reason: string, source: 'ai'|'formula' }
@@ -911,9 +915,21 @@ ${exerciseBlocks}
 Respond ONLY with valid JSON, no markdown, no prose outside the JSON:
 {"recs":[{"id":"exercise_id","weight":number_or_null,"reason":"one sentence, direct, coach voice, max 20 words"}]}`;
 
+  if(!anthropicApiKey){
+    console.error('No Anthropic API key set. Tap the status dot or open Coach AI to add one.');
+    aiRecsLoadingFor = null;
+    return;
+  }
+
   try{
     const res = await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key': anthropicApiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
       body: JSON.stringify({
         model:'claude-sonnet-4-6',
         max_tokens: 800,
@@ -984,6 +1000,17 @@ function hideRecTooltip(){
   document.getElementById('rec-tooltip').classList.remove('show');
 }
 
+function showApiKeyPrompt(){
+  const existing = anthropicApiKey ? `(currently set, ending in ...${anthropicApiKey.slice(-6)})` : '(not set)';
+  const entered = prompt(`Enter your Anthropic API key ${existing}:\n\nGet one at console.anthropic.com/settings/keys\n\nStored locally in Firestore, not shared anywhere else.`, anthropicApiKey || '');
+  if(entered === null) return; // cancelled
+  anthropicApiKey = entered.trim();
+  memSet('ll_api_key', anthropicApiKey);
+  if(anthropicApiKey){
+    addMsg('a', 'Got it — API key saved. Try logging a set or asking me something.');
+  }
+}
+
 function buildSys(){
   const summary=[];
   for(let w=1;w<=12;w++){
@@ -1018,13 +1045,25 @@ async function sendMessage(){
   const input=document.getElementById('chat-input');
   const msg=input.value.trim();
   if(!msg||isSending)return;
+
+  if(!anthropicApiKey){
+    addMsg('a', 'I need an Anthropic API key to work. Tap the ⚙️ button next to the send button to add one.');
+    return;
+  }
+
   input.value='';input.style.height='38px';
   isSending=true;document.getElementById('send-btn').disabled=true;
   addMsg('u',msg);history.push({role:'user',content:msg});
   const tid='t'+Date.now();addTyping(tid);
   try{
     const res=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',headers:{'Content-Type':'application/json'},
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key': anthropicApiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
       body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,system:buildSys(),messages:history})
     });
     if(!res.ok){
@@ -1156,7 +1195,8 @@ async function init(){
   renderDay(selectedDayKey);
   updateStats();
   const persistNote = storageWorks ? '' : ' ⚠️ Heads up — data persistence isn\'t working in this session (tap the dot in the header for details).';
-  addMsg('a',`Hey! Week ${currentWeek}, ${PROGRAM[selectedDayKey]?.title||selectedDayKey.toUpperCase()}. Log sets, ask about form, or swap exercises — whatever you need.${persistNote}`);
+  const apiKeyNote = anthropicApiKey ? '' : ' ⚠️ You\'ll need to set an API key first — tap the ⚙️ above to add one.';
+  addMsg('a',`Hey! Week ${currentWeek}, ${PROGRAM[selectedDayKey]?.title||selectedDayKey.toUpperCase()}. Log sets, ask about form, or swap exercises — whatever you need.${persistNote}${apiKeyNote}`);
 }
 init();
 </script>
